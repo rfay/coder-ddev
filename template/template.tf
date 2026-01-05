@@ -24,7 +24,7 @@ provider "docker" {
   dynamic "registry_auth" {
     for_each = var.registry_username != "" && var.registry_password != "" ? [1] : []
     content {
-      address  = "registry.example.com"
+      address  = "https://index.docker.io/v1/"
       username = var.registry_username
       password = var.registry_password
     }
@@ -63,7 +63,7 @@ variable "registry_password" {
 variable "image_version" {
   description = "The version of the Docker image to use"
   type        = string
-  default     = "3.1.7"
+  default     = "1.0.0-beta1"
 }
 
 
@@ -99,7 +99,7 @@ variable "workspace_image_registry" {
   # Requires registry_username and registry_password variables for authentication
   # The version tag is appended automatically from VERSION file
   # DO NOT include :latest or any version tag here - version is read from VERSION file
-  default = "registry.example.com/ddev-coder/base"
+  default = "index.docker.io/christianwiedemann/coder-ddev-base"
 }
 
 # Local variable to ensure registry URL doesn't have any tag
@@ -309,7 +309,7 @@ resource "coder_agent" "main" {
     if ! pgrep -x "dockerd" > /dev/null; then
       echo "Starting Docker Daemon..."
       # Use sudo because we are running as coder user
-      sudo dockerd > /var/log/dockerd.log 2>&1 &
+      sudo dockerd > /tmp/dockerd.log 2>&1 &
       
       # Wait for Docker Socket
       echo "Waiting for Docker Socket..."
@@ -483,7 +483,7 @@ BASHPROFILE_WELCOME
   }
 
   metadata {
-    display_name = "Drupal DDEV Workspace"
+    display_name = "Coder DDEV Base"
     key          = "0"
     script       = "coder stat"
     interval     = 1
