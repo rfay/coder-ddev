@@ -130,13 +130,15 @@ RUN mkdir -p /etc/apt/keyrings && \
   # Enable Docker service
   systemctl enable docker
 
-# Install DDEV
-# We install DDEV globally so it's available for the coder user and in the PATH
+# Install DDEV using official package installation method
+# https://docs.ddev.com/en/stable/users/install/ddev-installation/#ddev-installation-linux
 USER root
-RUN curl -fsSL -L "https://github.com/ddev/ddev/releases/download/v1.24.10/ddev_linux-amd64.v1.24.10.tar.gz" -o /tmp/ddev.tar.gz && \
-  tar -xzf /tmp/ddev.tar.gz -C /usr/local/bin && \
-  rm /tmp/ddev.tar.gz && \
-  chmod +x /usr/local/bin/ddev
+RUN curl -fsSL https://pkg.ddev.com/apt/gpg.key | gpg --dearmor -o /etc/apt/keyrings/ddev.gpg --yes && \
+  chmod a+r /etc/apt/keyrings/ddev.gpg && \
+  echo "deb [signed-by=/etc/apt/keyrings/ddev.gpg] https://pkg.ddev.com/apt/ * *" > /etc/apt/sources.list.d/ddev.list && \
+  apt-get update && \
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ddev && \
+  rm -rf /var/lib/apt/lists/*
 
 USER coder
 # Verify installation
