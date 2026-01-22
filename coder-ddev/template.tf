@@ -93,7 +93,7 @@ variable "workspace_image_registry" {
   # Requires registry_username and registry_password variables for authentication
   # The version tag is appended automatically from VERSION file
   # DO NOT include :latest or any version tag here - version is read from VERSION file or variable
-  default = "index.docker.io/christianwiedemann/coder-ddev-base"
+  default = "index.docker.io/randyfay/coder-ddev"
 }
 
 # Local variable to ensure registry URL doesn't have any tag
