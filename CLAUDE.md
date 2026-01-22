@@ -10,6 +10,7 @@ This project provides a Coder v2+ template for DDEV-based development environmen
 - **Terraform (HCL)** - Infrastructure as Code for Coder templates
 - **Docker + Sysbox** - Nested containerization without privileged mode
 - **DDEV v1.24.10** - PHP/Node/Python development environment tool
+- **VS Code for Web** - Browser-based IDE via official Coder module
 - **Ubuntu 24.04** - Base container OS
 
 ## Essential Commands
@@ -46,6 +47,14 @@ ddev stop
 
 # Check DDEV status
 ddev describe
+```
+
+### IDE Access
+```bash
+# VS Code for Web is automatically available via Coder's official module
+# Access via Coder dashboard under "Apps" section
+# Opens at /home/coder directory with full IDE features
+# Module: registry.coder.com/modules/coder/vscode-web/coder v1.0.20
 ```
 
 ### OpenSpec Workflow
@@ -96,7 +105,10 @@ The startup script in `coder-ddev/scripts/startup.sh` performs:
 4. **File copy** - Transfer `/home/coder-files/*` to home directory
 5. **Docker daemon** - Start `dockerd` via sudo, wait for socket
 6. **DDEV config** - Copy `global_config.yaml` to `~/.ddev/`
-7. **Environment** - Set locale, PATH, workspace variables
+7. **DDEV verification** - Verify DDEV installation and Docker connectivity
+8. **Environment** - Set locale, PATH, workspace variables
+
+**Note:** VS Code for Web is managed by the official Coder module and starts automatically.
 
 ### Volume Strategy
 - **Home directory**: Host path `/home/coder/workspaces/<owner>-<workspace>` → Container `/home/coder`
@@ -215,6 +227,8 @@ Additional logs in workspace:
 - `coder-ddev/template.tf` - Main Terraform template definition
 - `coder-ddev/scripts/startup.sh` - Workspace startup script with Docker/DDEV initialization
 - `coder-ddev/template.tf:183-239` - Coder agent configuration
+- `coder-ddev/template.tf:242-248` - VS Code for Web module (official Coder module)
+- `coder-ddev/template.tf:250-263` - Graceful DDEV shutdown script
 - `coder-ddev/template.tf:268-332` - Docker container resource
 - `image/Dockerfile` - Base image build instructions
 - `image/scripts/.ddev/global_config.yaml` - DDEV defaults

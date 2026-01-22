@@ -238,6 +238,15 @@ resource "coder_agent" "main" {
   }
 }
 
+# VS Code for Web
+module "vscode-web" {
+  count    = data.coder_workspace.me.start_count
+  source   = "registry.coder.com/modules/coder/vscode-web/coder"
+  version  = "1.0.20"
+  agent_id = coder_agent.main.id
+  folder   = "/home/coder"
+}
+
 # Graceful DDEV shutdown when workspace stops
 resource "coder_script" "ddev_shutdown" {
   agent_id     = coder_agent.main.id
