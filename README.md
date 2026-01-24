@@ -9,7 +9,7 @@ Coder workspace template for DDEV-based development with Docker-in-Docker suppor
 - **DDEV v1.24.10**: Installed via official apt package
 - **VS Code for Web**: Browser-based IDE via official Coder module
 - **Node.js 22.x LTS**: With npm and global package support
-- **Port Forwarding**: DDEV Web (8080) and Mailpit (8025) apps
+- **Port Forwarding**: DDEV Web via router (port 80)
 - **Bash Completion**: Enabled for git, ddev, and other commands
 - **Base Image**: Ubuntu 24.04 (`randyfay/coder-ddev:v0.1`)
 
@@ -144,7 +144,6 @@ ddev start
 
 # Access DDEV web interface
 # Click "DDEV Web" in Coder dashboard Apps section
-# Or use the Mailpit app for email testing
 ```
 
 ## Accessing Apps
@@ -152,8 +151,7 @@ ddev start
 The template provides browser-accessible apps in the Coder dashboard:
 
 - **VS Code for Web**: Full-featured VS Code IDE at `/home/coder`
-- **DDEV Web**: DDEV project web interface (port 8080)
-- **Mailpit**: Email catcher for testing (port 8025)
+- **DDEV Web**: DDEV project web interface (via router on port 80)
 
 ## Key Coder Commands Reference
 

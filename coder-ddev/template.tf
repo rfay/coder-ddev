@@ -225,36 +225,19 @@ module "vscode-web" {
 }
 
 # DDEV Web Server (HTTP) - appears when DDEV project is running
-# Uses web container's direct HTTP port (8080) as configured in DDEV global_config.yaml
+# Uses DDEV router port (80) with hostname-based routing
+# Projects must configure hostname via: ddev configure-coder-hostname
 resource "coder_app" "ddev-web" {
   agent_id     = coder_agent.main.id
   slug         = "ddev-web"
   display_name = "DDEV Web"
-  url          = "http://localhost:8080"
+  url          = "http://localhost:80"
   icon         = "/icon/globe.svg"
   subdomain    = true
   share        = "owner"
 
   healthcheck {
-    url       = "http://localhost:8080"
-    interval  = 10
-    threshold = 30
-  }
-}
-
-# Mailpit (DDEV email catcher)
-# Uses Mailpit's HTTP port (8025) inside the workspace container
-resource "coder_app" "mailpit" {
-  agent_id     = coder_agent.main.id
-  slug         = "mailpit"
-  display_name = "Mailpit"
-  url          = "http://localhost:8025"
-  icon         = "/icon/mail.svg"
-  subdomain    = false
-  share        = "owner"
-
-  healthcheck {
-    url       = "http://localhost:8025"
+    url       = "http://localhost:80"
     interval  = 10
     threshold = 30
   }
