@@ -3,7 +3,6 @@ instrumentation_opt_in: true
 internet_detection_timeout_ms: 3000
 host_webserver_port: "8080"
 host_https_port: "8443"
-last_started_version: v1.24.10
 letsencrypt_email: ""
 mkcert_caroot: ""
 no_bind_mounts: false
