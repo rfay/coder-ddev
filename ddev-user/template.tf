@@ -101,6 +101,14 @@ locals {
 locals {
   # Read image version from VERSION file if it exists, otherwise use variable default
   image_version = try(trimspace(file("${path.module}/VERSION")), var.image_version)
+
+  # Remove any tag (including :latest) if present, but preserve port numbers (e.g., :5050)
+  # Remove common tags from the end of the registry URL
+  # First remove the current version tag, then remove :latest
+  # This handles cases where old configs might still have :latest or version tags
+  # Note: We can't use regex, so we handle the most common cases
+  registry_without_version      = replace(var.workspace_image_registry, ":${local.image_version}", "")
+  workspace_image_registry_base = replace(local.registry_without_version, ":latest", "")
 }
 
 variable "workspace_image_registry" {
@@ -111,15 +119,6 @@ variable "workspace_image_registry" {
   # To use a specific version, override the image_version variable when deploying
   default = "index.docker.io/randyfay/coder-ddev"
 }
-
-# Local variable to ensure registry URL doesn't have any tag
-# Remove any tag (including :latest) if present, but preserve port numbers (e.g., :5050)
-  # Remove common tags from the end of the registry URL
-  # First remove the current version tag, then remove :latest
-  # This handles cases where old configs might still have :latest or version tags
-  # Note: We can't use regex, so we handle the most common cases
-  registry_without_version      = replace(var.workspace_image_registry, ":${local.image_version}", "")
-  workspace_image_registry_base = replace(local.registry_without_version, ":latest", "")
 
 
 
