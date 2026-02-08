@@ -66,6 +66,12 @@ variable "image_version" {
   default     = "v0.4"
 }
 
+variable "docker_gid" {
+  description = "Docker group GID (must match host Docker group for socket access)"
+  type        = number
+  default     = 988
+}
+
 
 
 # Workspace data source
@@ -92,10 +98,15 @@ locals {
   workspace_home = "/home/coder"
 }
 
+locals {
+  # Read image version from VERSION file if it exists, otherwise use variable default
+  image_version = try(trimspace(file("${path.module}/VERSION")), var.image_version)
+}
+
 variable "workspace_image_registry" {
   description = "Docker registry URL for the workspace base image (without tag, version is added automatically)"
   type        = string
-  # The version tag is appended automatically using the image_version variable
+  # The version tag is appended automatically using the image_version variable or VERSION file
   # DO NOT include :latest or any version tag here - version comes from image_version variable
   # To use a specific version, override the image_version variable when deploying
   default = "index.docker.io/randyfay/coder-ddev"
@@ -103,14 +114,12 @@ variable "workspace_image_registry" {
 
 # Local variable to ensure registry URL doesn't have any tag
 # Remove any tag (including :latest) if present, but preserve port numbers (e.g., :5050)
-locals {
   # Remove common tags from the end of the registry URL
   # First remove the current version tag, then remove :latest
   # This handles cases where old configs might still have :latest or version tags
   # Note: We can't use regex, so we handle the most common cases
-  registry_without_version      = replace(var.workspace_image_registry, ":${var.image_version}", "")
+  registry_without_version      = replace(var.workspace_image_registry, ":${local.image_version}", "")
   workspace_image_registry_base = replace(local.registry_without_version, ":latest", "")
-}
 
 
 
@@ -118,18 +127,17 @@ locals {
 # The image is built and pushed using the Makefile (see root Makefile and VERSION file)
 # This avoids prevent_destroy issues since the image is not managed by Terraform
 resource "docker_image" "workspace_image" {
-  # Always use version tag (never :latest) from the image_version variable
+  # Always use version tag (never :latest) from the image_version variable or VERSION file
   # This ensures consistent image versions and prevents using stale images
-  name = "${local.workspace_image_registry_base}:${var.image_version}"
+  name = "${local.workspace_image_registry_base}:${local.image_version}"
 
   # Pull trigger based on version - image is pulled when version changes
   # Also include registry URL to force pull if registry changes
   # This ensures old workspaces get the new image when template is updated
   pull_triggers = [
-    var.image_version,
+    local.image_version,
     local.workspace_image_registry_base,
-    "${local.workspace_image_registry_base}:${var.image_version}",
-    "force-pull-2026-02-08-v2",  # Change this value to force a re-pull
+    "${local.workspace_image_registry_base}:${local.image_version}",
   ]
 
   # Keep image locally after pull
@@ -511,7 +519,7 @@ resource "coder_app" "ddev-web" {
   display_name = "DDEV Web"
   url          = "http://localhost:80"
   icon         = "/icon/globe.svg"
-  subdomain    = true
+  subdomain    = false  # Set to false if wildcard DNS is not configured
   share        = "owner"
 
   healthcheck {
@@ -519,6 +527,22 @@ resource "coder_app" "ddev-web" {
     interval  = 10
     threshold = 30
   }
+}
+
+# Graceful DDEV shutdown when workspace stops
+resource "coder_script" "ddev_shutdown" {
+  agent_id     = coder_agent.main.id
+  display_name = "Stop DDEV Projects"
+  icon         = "/icon/docker.svg"
+  run_on_stop  = true
+  script       = <<-EOT
+    #!/bin/bash
+    echo "Stopping all DDEV projects gracefully..."
+    if command -v ddev > /dev/null 2>&1; then
+      ddev poweroff || true
+      echo "DDEV projects stopped"
+    fi
+  EOT
 }
 
 module "coder-login" {
@@ -538,8 +562,9 @@ resource "docker_container" "workspace" {
   image = docker_image.workspace_image.image_id
   name  = "coder-${data.coder_workspace.me.id}"
   user  = "coder"
-  # Add docker group (GID 988) so coder user can access Docker socket
-  group_add = ["988"]
+  # Add docker group so coder user can access Docker socket
+  # GID must match host Docker group (default 988, configurable via docker_gid variable)
+  group_add = [tostring(var.docker_gid)]
 
   # Increase stop_timeout to allow shutdown_script and ddev stop to run
   # Default is usually 10s, which is not enough for ddev shutdown
@@ -618,7 +643,7 @@ resource "coder_metadata" "workspace_info" {
 
   item {
     key   = "image"
-    value = "${docker_image.workspace_image.name} (version: ${var.image_version})"
+    value = "${docker_image.workspace_image.name} (version: ${local.image_version})"
   }
   item {
     key   = "node_version"
