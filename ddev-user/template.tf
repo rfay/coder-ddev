@@ -512,13 +512,14 @@ module "vscode-web" {
 }
 
 # DDEV Web Server (HTTP) - appears when DDEV project is running
+# Uses subdomain routing for unique URLs per workspace
 resource "coder_app" "ddev-web" {
   agent_id     = coder_agent.main.id
   slug         = "ddev-web"
   display_name = "DDEV Web"
   url          = "http://localhost:80"
   icon         = "/icon/globe.svg"
-  subdomain    = false  # Set to false if wildcard DNS is not configured
+  subdomain    = true
   share        = "owner"
 
   healthcheck {
