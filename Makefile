@@ -1,10 +1,12 @@
-# Makefile for building and pushing coder-ddev Docker image
+# Makefile for building and pushing coder-ddev Docker image and template
 
 # Configuration
 IMAGE_NAME := randyfay/coder-ddev
 VERSION := $(shell cat VERSION 2>/dev/null || echo "1.0.0-beta1")
 DOCKERFILE_DIR := image
 DOCKERFILE := $(DOCKERFILE_DIR)/Dockerfile
+TEMPLATE_DIR := template
+TEMPLATE_NAME := ddev-user
 
 # Full image tag
 IMAGE_TAG := $(IMAGE_NAME):$(VERSION)
@@ -66,9 +68,25 @@ clean: ## Remove local image
 	@echo "Clean complete"
 
 .PHONY: info
-info: ## Show image information
-	@echo "Image Name:    $(IMAGE_NAME)"
-	@echo "Version:       $(VERSION)"
-	@echo "Full Tag:      $(IMAGE_TAG)"
-	@echo "Latest Tag:    $(IMAGE_LATEST)"
-	@echo "Dockerfile:    $(DOCKERFILE)"
+info: ## Show image and template information
+	@echo "Version:        $(VERSION)"
+	@echo "Image Name:     $(IMAGE_NAME)"
+	@echo "Image Tag:      $(IMAGE_TAG)"
+	@echo "Latest Tag:     $(IMAGE_LATEST)"
+	@echo "Dockerfile:     $(DOCKERFILE)"
+	@echo "Template Dir:   $(TEMPLATE_DIR)"
+	@echo "Template Name:  $(TEMPLATE_NAME)"
+
+.PHONY: push-template
+push-template: ## Push Coder template
+	@echo "Pushing Coder template $(TEMPLATE_NAME)..."
+	coder templates push --directory $(TEMPLATE_DIR) $(TEMPLATE_NAME) --yes
+	@echo "Template push complete"
+
+.PHONY: deploy
+deploy: build-and-push push-template ## Build image, push image, and push template (full deployment)
+	@echo "Full deployment complete!"
+
+.PHONY: deploy-no-cache
+deploy-no-cache: build-and-push-no-cache push-template ## Build image without cache, push image, and push template
+	@echo "Full deployment complete!"

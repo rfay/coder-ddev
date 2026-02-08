@@ -1,10 +1,10 @@
 # Coder DDEV Base Image
 
 This Docker image is the base image for Coder Drupal DDEV workspaces. It contains:
-- Ubuntu 24.04 LTS
+- Ubuntu LTS
 - Docker daemon (for Docker-in-Docker with Sysbox)
-- DDEV v1.24.10
-- Node.js 22.x LTS
+- DDEV (latest)
+- Node.js LTS
 - coder user (UID 1000) with passwordless sudo
 
 ## Building

@@ -61,9 +61,9 @@ variable "registry_password" {
 }
 
 variable "image_version" {
-  description = "The version of the Docker image to use (auto-synced from VERSION file)"
+  description = "The version of the Docker image to use"
   type        = string
-  default     = "v0.4" # auto-updated from VERSION
+  default     = "v0.4"
 }
 
 
