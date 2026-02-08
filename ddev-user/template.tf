@@ -494,6 +494,33 @@ resource "docker_volume" "coder_dind_cache" {
   name = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}-dind-cache"
 }
 
+# VS Code for Web
+module "vscode-web" {
+  count          = data.coder_workspace.me.start_count
+  source         = "registry.coder.com/coder/vscode-web/coder"
+  version        = "1.0.20"
+  agent_id       = coder_agent.main.id
+  folder         = "/home/coder"
+  accept_license = true
+}
+
+# DDEV Web Server (HTTP) - appears when DDEV project is running
+resource "coder_app" "ddev-web" {
+  agent_id     = coder_agent.main.id
+  slug         = "ddev-web"
+  display_name = "DDEV Web"
+  url          = "http://localhost:80"
+  icon         = "/icon/globe.svg"
+  subdomain    = true
+  share        = "owner"
+
+  healthcheck {
+    url       = "http://localhost:80"
+    interval  = 10
+    threshold = 30
+  }
+}
+
 module "coder-login" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/coder-login/coder"
