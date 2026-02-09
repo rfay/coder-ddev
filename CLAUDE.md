@@ -9,9 +9,11 @@ This project provides a Coder v2+ template for DDEV-based development environmen
 **Key Technologies:**
 - **Terraform (HCL)** - Infrastructure as Code for Coder templates
 - **Docker + Sysbox** - Nested containerization without privileged mode
-- **DDEV v1.24.10** - PHP/Node/Python development environment tool
+- **DDEV v1.24.10** - PHP/Node/Python development environment tool (supports 20+ project types)
 - **VS Code for Web** - Browser-based IDE via official Coder module
 - **Ubuntu 24.04** - Base container OS
+
+**Note:** User-facing documentation has moved to `/docs/`. This file focuses on developer/contributor guidance.
 
 ## Essential Commands
 
@@ -64,7 +66,14 @@ docker push randyfay/coder-ddev:v0.2
 ### DDEV Commands (within workspace)
 ```bash
 # Initialize DDEV in project directory
-ddev config --project-type=drupal10 --docroot=web
+# Replace <project-type> with your type: php, wordpress, laravel, drupal, etc.
+ddev config --project-type=<project-type> --docroot=web
+
+# Common examples:
+# ddev config --project-type=wordpress --docroot=web
+# ddev config --project-type=laravel --docroot=public
+# ddev config --project-type=drupal --docroot=web
+# ddev config --project-type=php --docroot=web
 
 # Start DDEV environment
 ddev start
