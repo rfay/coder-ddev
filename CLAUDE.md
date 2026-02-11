@@ -81,7 +81,7 @@ ddev describe
 # VS Code for Web is automatically available via Coder's official module
 # Access via Coder dashboard under "Apps" section
 # Opens at /home/coder directory with full IDE features
-# Module: registry.coder.com/coder/vscode-web/coder v1.0.31
+# Module: registry.coder.com/coder/vscode-web/coder ~> 1.0 (auto-updates to latest 1.0.x)
 ```
 
 ### OpenSpec Workflow

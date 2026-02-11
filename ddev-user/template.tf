@@ -504,7 +504,7 @@ resource "docker_volume" "coder_dind_cache" {
 module "vscode-web" {
   count          = data.coder_workspace.me.start_count
   source         = "registry.coder.com/coder/vscode-web/coder"
-  version        = "1.0.31"
+  version        = "~> 1.0"
   agent_id       = coder_agent.main.id
   folder         = "/home/coder"
   accept_license = true
@@ -551,7 +551,7 @@ resource "coder_script" "ddev_shutdown" {
 module "coder-login" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/coder-login/coder"
-  version  = "1.0.31"
+  version  = "~> 1.0"
   agent_id = coder_agent.main.id
 }
 
