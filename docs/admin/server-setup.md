@@ -145,11 +145,14 @@ Create a Cloudflare API token scoped to **Zone / DNS / Edit** for the specific z
 
 ### Request the certificate
 
+The cert must cover both the base domain and the wildcard — the wildcard is required for workspace app subdomain routing (e.g. `ddev-web--myworkspace--rfay.coder.ddev.com`). DNS-01 is the only challenge type that supports wildcards.
+
 ```bash
 sudo certbot certonly \
   --dns-cloudflare \
   --dns-cloudflare-credentials /etc/letsencrypt/secrets/cloudflare.ini \
   -d coder.ddev.com \
+  -d '*.coder.ddev.com' \
   --email accounts@ddev.com \
   --agree-tos \
   --non-interactive
@@ -159,12 +162,26 @@ Replace `--dns-cloudflare` and `--dns-cloudflare-credentials` with the flag and 
 
 Certbot stores certificates in `/etc/letsencrypt/live/coder.ddev.com/`.
 
+**If you already have a cert for just `coder.ddev.com`**, expand it in place with `--expand` (paths remain the same, no Coder config change needed):
+
+```bash
+sudo certbot certonly \
+  --dns-cloudflare \
+  --dns-cloudflare-credentials /etc/letsencrypt/secrets/cloudflare.ini \
+  -d coder.ddev.com \
+  -d '*.coder.ddev.com' \
+  --email accounts@ddev.com \
+  --agree-tos \
+  --non-interactive \
+  --expand
+```
+
 ### Set up renewal with Coder restart
 
 Certbot installs a systemd timer for automatic renewal. Add a deploy hook that fixes certificate permissions and restarts Coder. This hook runs after every renewal — and you'll also run it manually right now to fix permissions on the freshly-issued cert.
 
 ```bash
-sudo tee /etc/letsencrypt/renewal-hooks/deploy/coder.sh > /dev/null <<'EOF'
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/restart-coder.sh > /dev/null <<'EOF'
 #!/bin/bash
 # The live/ directory contains symlinks into archive/ — permissions must
 # be set on the archive files and all parent directories.
@@ -182,13 +199,13 @@ chgrp coder /etc/letsencrypt/archive/coder.ddev.com/privkey*.pem
 # Restart Coder to pick up renewed cert
 systemctl restart coder
 EOF
-sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/coder.sh
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/restart-coder.sh
 ```
 
 Run the hook now to fix permissions on the cert you just issued:
 
 ```bash
-sudo /etc/letsencrypt/renewal-hooks/deploy/coder.sh
+sudo /etc/letsencrypt/renewal-hooks/deploy/restart-coder.sh
 ```
 
 Test that automatic renewal will work:
@@ -238,6 +255,9 @@ CODER_TLS_KEY_FILE=/etc/letsencrypt/live/coder.ddev.com/privkey.pem
 # Redirect HTTP on port 80 to HTTPS
 CODER_HTTP_ADDRESS=0.0.0.0:80
 CODER_REDIRECT_TO_ACCESS_URL=true
+
+# Wildcard domain for workspace app subdomain routing (requires *.coder.ddev.com DNS + cert)
+CODER_WILDCARD_ACCESS_URL=*.coder.ddev.com
 
 # PostgreSQL connection (set up in Step 3)
 CODER_PG_CONNECTION_URL=postgresql://coder:strongpasswordhere@localhost/coder?sslmode=disable
