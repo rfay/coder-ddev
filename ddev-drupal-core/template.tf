@@ -176,15 +176,6 @@ variable "memory" {
   }
 }
 
-variable "disk_size" {
-  description = "Disk size in GB"
-  type        = number
-  default     = 50
-  validation {
-    condition     = var.disk_size >= 10 && var.disk_size <= 500
-    error_message = "Disk size must be between 10 and 500 GB"
-  }
-}
 
 
 
@@ -986,10 +977,6 @@ resource "coder_metadata" "workspace_info" {
   item {
     key   = "memory"
     value = "${var.memory} GB"
-  }
-  item {
-    key   = "disk_size"
-    value = "${var.disk_size} GB"
   }
   item {
     key   = "setup_logs"
