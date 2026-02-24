@@ -7,8 +7,10 @@ This guide covers setting up a new Coder server with the DDEV template from scra
 The full stack requires:
 1. Docker (non-snap) — for running workspace containers
 2. Sysbox — for safe nested Docker inside workspaces
-3. Coder server — the control plane
-4. This template — deployed to Coder
+3. PostgreSQL — for Coder's database (required for multi-server HA)
+4. TLS certificate — via Let's Encrypt DNS challenge
+5. Coder server — the control plane
+6. This template — deployed to Coder
 
 ---
 
@@ -65,7 +67,143 @@ See [Sysbox install docs](https://github.com/nestybox/sysbox/blob/master/docs/us
 
 ---
 
-## Step 3: Install Coder
+## Step 3: Install PostgreSQL
+
+Coder ships with a built-in SQLite database that works fine for a single server. PostgreSQL is needed if you ever want to run multiple Coder server replicas (for redundancy or handling larger user load) — and migrating later is painful, so it's worth setting up now.
+
+```bash
+# Install PostgreSQL (Ubuntu ships a current version in its default repos)
+sudo apt-get install -y postgresql
+
+# Verify it's running
+sudo systemctl enable --now postgresql
+sudo systemctl status postgresql
+```
+
+### Create the Coder database and user
+
+```bash
+sudo -u postgres psql <<'EOF'
+CREATE USER coder WITH PASSWORD 'strongpasswordhere';
+CREATE DATABASE coder OWNER coder;
+EOF
+```
+
+Replace `strongpasswordhere` with a strong password and record it — you'll need it in the Coder config.
+
+### Verify the connection
+
+```bash
+psql -U coder -h localhost -d coder -c '\conninfo'
+# Enter the password when prompted
+```
+
+If this fails with a peer authentication error, confirm `/etc/postgresql/*/main/pg_hba.conf` has a `md5` or `scram-sha-256` entry for local TCP connections (the default Ubuntu config should allow this for `localhost`).
+
+---
+
+## Step 4: Get a TLS Certificate
+
+Coder has no built-in Let's Encrypt support — it reads certificate files directly. Obtain the certificate before configuring Coder. The DNS-01 challenge is the recommended approach because it works without opening port 80, supports wildcard certificates, and works even if your server isn't yet reachable on its final DNS name.
+
+### Install certbot and a DNS provider plugin
+
+```bash
+sudo apt-get install -y certbot
+```
+
+Then install the plugin for your DNS provider. Common providers:
+
+| Provider | Package |
+|---|---|
+| Cloudflare | `python3-certbot-dns-cloudflare` |
+| AWS Route 53 | `python3-certbot-dns-route53` |
+| DigitalOcean | `python3-certbot-dns-digitalocean` |
+| Google Cloud DNS | `python3-certbot-dns-google` |
+
+```bash
+# Example for Cloudflare:
+sudo apt-get install -y python3-certbot-dns-cloudflare
+```
+
+See [certbot's DNS plugin list](https://eff-certbot.readthedocs.io/en/stable/using.html#dns-plugins) for all supported providers.
+
+### Create the provider credentials file
+
+Each plugin needs API credentials. Example for Cloudflare:
+
+```bash
+sudo mkdir -p /etc/letsencrypt/secrets
+sudo chmod 700 /etc/letsencrypt/secrets
+sudo tee /etc/letsencrypt/secrets/cloudflare.ini > /dev/null <<'EOF'
+dns_cloudflare_api_token = YOUR_CLOUDFLARE_API_TOKEN
+EOF
+sudo chmod 600 /etc/letsencrypt/secrets/cloudflare.ini
+```
+
+Create a Cloudflare API token scoped to **Zone / DNS / Edit** for the specific zone only (not a Global API Key).
+
+### Request the certificate
+
+```bash
+sudo certbot certonly \
+  --dns-cloudflare \
+  --dns-cloudflare-credentials /etc/letsencrypt/secrets/cloudflare.ini \
+  -d coder.ddev.com \
+  --email accounts@ddev.com \
+  --agree-tos \
+  --non-interactive
+```
+
+Replace `--dns-cloudflare` and `--dns-cloudflare-credentials` with the flag and credentials file for your provider. Replace `coder.ddev.com` with your actual hostname.
+
+Certbot stores certificates in `/etc/letsencrypt/live/coder.ddev.com/`.
+
+### Set up renewal with Coder restart
+
+Certbot installs a systemd timer for automatic renewal. Add a deploy hook that fixes certificate permissions and restarts Coder. This hook runs after every renewal — and you'll also run it manually right now to fix permissions on the freshly-issued cert.
+
+```bash
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/coder.sh > /dev/null <<'EOF'
+#!/bin/bash
+# The live/ directory contains symlinks into archive/ — permissions must
+# be set on the archive files and all parent directories.
+chmod 0755 /etc/letsencrypt/live
+chmod 0755 /etc/letsencrypt/archive
+chmod 0755 /etc/letsencrypt/live/coder.ddev.com
+chmod 0755 /etc/letsencrypt/archive/coder.ddev.com
+# Public cert files: world-readable
+chmod 0644 /etc/letsencrypt/archive/coder.ddev.com/fullchain*.pem
+chmod 0644 /etc/letsencrypt/archive/coder.ddev.com/chain*.pem
+chmod 0644 /etc/letsencrypt/archive/coder.ddev.com/cert*.pem
+# Private key: readable by coder group only
+chmod 0640 /etc/letsencrypt/archive/coder.ddev.com/privkey*.pem
+chgrp coder /etc/letsencrypt/archive/coder.ddev.com/privkey*.pem
+# Restart Coder to pick up renewed cert
+systemctl restart coder
+EOF
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/coder.sh
+```
+
+Run the hook now to fix permissions on the cert you just issued:
+
+```bash
+sudo /etc/letsencrypt/renewal-hooks/deploy/coder.sh
+```
+
+Test that automatic renewal will work:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+### DNS note
+
+If you're migrating an existing DNS name (e.g., `coder.ddev.com`) from another server, simply update the A record to point at the new server's IP once it is ready. The DNS-01 challenge succeeds regardless of which IP the A record points to, so you can get the certificate before the cutover.
+
+---
+
+## Step 5: Install Coder
 
 ### Install the binary
 
@@ -83,27 +221,37 @@ Edit `/etc/coder.d/coder.env`:
 sudo vim /etc/coder.d/coder.env
 ```
 
-Key variables to set:
+#### Listening on port 443 (recommended for production)
+
+Coder terminates TLS itself — no reverse proxy needed:
 
 ```bash
-# The externally-reachable URL for your Coder deployment
-# Use your server's hostname or IP. Must be reachable by users and workspaces.
-CODER_ACCESS_URL=https://coder.example.com
+# Externally-reachable URL
+CODER_ACCESS_URL=https://coder.ddev.com
 
-# Address and port Coder listens on
-CODER_HTTP_ADDRESS=0.0.0.0:3000
+# Serve HTTPS directly on port 443
+CODER_TLS_ENABLE=true
+CODER_TLS_ADDRESS=0.0.0.0:443
+CODER_TLS_CERT_FILE=/etc/letsencrypt/live/coder.ddev.com/fullchain.pem
+CODER_TLS_KEY_FILE=/etc/letsencrypt/live/coder.ddev.com/privkey.pem
 
-# PostgreSQL connection string (optional; Coder has a built-in database for small deployments)
-# For production, use an external PostgreSQL instance:
-# CODER_PG_CONNECTION_URL=postgresql://user:password@localhost/coder?sslmode=disable
+# Redirect HTTP on port 80 to HTTPS
+CODER_HTTP_ADDRESS=0.0.0.0:80
+CODER_REDIRECT_TO_ACCESS_URL=true
 
-# Optional: TLS configuration if not terminating TLS upstream
-# CODER_TLS_ENABLE=true
-# CODER_TLS_CERT_FILE=/etc/coder.d/coder.crt
-# CODER_TLS_KEY_FILE=/etc/coder.d/coder.key
+# PostgreSQL connection (set up in Step 3)
+CODER_PG_CONNECTION_URL=postgresql://coder:strongpasswordhere@localhost/coder?sslmode=disable
 ```
 
-**Note:** For production deployments, an external PostgreSQL database is recommended over the built-in one. Install PostgreSQL with `sudo apt-get install -y postgresql` and create a `coder` database and user before setting `CODER_PG_CONNECTION_URL`.
+#### Alternative: plain HTTP or non-standard port
+
+If you're running behind a reverse proxy (nginx, Caddy) that handles TLS, or just testing on a LAN:
+
+```bash
+CODER_ACCESS_URL=http://coder.ddev.com:3000
+CODER_HTTP_ADDRESS=0.0.0.0:3000
+# No TLS variables needed; your proxy handles termination
+```
 
 ### Start and enable Coder
 
@@ -120,19 +268,19 @@ journalctl -u coder -f
 
 ### First-run admin setup
 
-Navigate to `http://<your-server>:3000` (or your `CODER_ACCESS_URL`) and create the initial admin user.
+Navigate to `https://coder.ddev.com` and create the initial admin user.
 
 ### Authenticate the CLI
 
 On the machine where you'll manage templates (can be your local machine):
 
 ```bash
-coder login https://coder.example.com
+coder login https://coder.ddev.com
 ```
 
 ---
 
-## Step 4: Deploy the DDEV Template
+## Step 6: Deploy the DDEV Template
 
 With Coder running and the CLI authenticated, follow the [Operations Guide](./operations-guide.md) to build the Docker image and push the template.
 
@@ -183,7 +331,7 @@ coder provisioner keys create my-provisioner-key --org default
 curl -L https://coder.com/install.sh | sh
 
 # Set credentials
-export CODER_URL=https://coder.example.com
+export CODER_URL=https://coder.ddev.com
 export CODER_PROVISIONER_DAEMON_KEY=<key-from-above>
 
 # Start the provisioner daemon
