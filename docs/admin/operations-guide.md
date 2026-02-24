@@ -16,13 +16,21 @@ Before deploying this template, ensure the following are in place:
 
 - **Sysbox runtime installed** on all Coder agent nodes:
   ```bash
-  # Install Sysbox Community Edition
-  apt-get update
-  apt-get install sysbox-ce
+  # Install prerequisites
+  sudo apt-get install -y jq
+
+  # Download Sysbox CE package (check https://github.com/nestybox/sysbox/releases for latest version)
+  SYSBOX_VERSION=0.6.7
+  wget https://downloads.nestybox.com/sysbox/releases/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}-0.linux_amd64.deb
+
+  # Install the package (note: sysbox-ce is not in standard apt repos)
+  sudo apt-get install -y ./sysbox-ce_${SYSBOX_VERSION}-0.linux_amd64.deb
 
   # Verify installation
+  sudo systemctl status sysbox -n20
   sysbox-runc --version
   ```
+  **Note:** Docker must be installed (not via snap) before installing Sysbox. The installer will restart Docker. See [Sysbox install docs](https://github.com/nestybox/sysbox/blob/master/docs/user-guide/install-package.md) for details.
 
 - Docker configured to use Sysbox runtime for appropriate containers
 - Sufficient storage for Docker volumes (each workspace uses dedicated `/var/lib/docker` volume)
@@ -42,7 +50,7 @@ Before deploying this template, ensure the following are in place:
 
 ## Building the Docker Image
 
-The base image contains Ubuntu 24.04, Docker daemon, DDEV, Node.js, and essential development tools.
+The base image contains Ubuntu, Docker daemon, DDEV, Node.js, and essential development tools.
 
 ### Using the Makefile
 
@@ -79,13 +87,13 @@ See `image/README.md` for details on customizing the Docker image.
 
 ```bash
 # Push template only
-make push-template
+make push-template-ddev-user
 
 # Full deployment (build image + push image + push template)
-make deploy
+make deploy-ddev-user
 
 # Full deployment without cache
-make deploy-no-cache
+make deploy-ddev-user-no-cache
 ```
 
 ### Template Configuration
@@ -98,7 +106,7 @@ variable "workspace_image_registry" {
 }
 
 variable "image_version" {
-  default = "v0.1"  # Update this when releasing new image versions
+  default = "v0.6"  # Update this when releasing new image versions
 }
 
 variable "cpu" {
@@ -109,12 +117,8 @@ variable "memory" {
   default = 8  # RAM in GB per workspace
 }
 
-variable "node_version" {
-  default = "24"  # Node.js LTS version (informational only; Node is pre-installed in image)
-}
-
 variable "docker_gid" {
-  default = "988"  # Docker group ID (must match host)
+  default = 988  # Docker group ID (must match host)
 }
 ```
 
@@ -128,31 +132,20 @@ variable "docker_gid" {
 
 ### Version Files
 
-Two files control versioning:
-
-1. **`VERSION`** (root directory) - Used by Makefile for Docker image tags
-2. **`ddev-user/template.tf`** - Default value for `image_version` variable
+The `VERSION` file in the root directory controls the image tag. The Makefile automatically copies it into the template directory before pushing, and `template.tf` reads it from there — no manual edits to `template.tf` are needed.
 
 ### Releasing a New Version
 
 ```bash
 # 1. Update VERSION file
-echo "v0.2" > VERSION
+echo "v0.7" > VERSION
 
-# 2. Edit ddev-user/template.tf
-# Update default value for image_version variable:
-#   variable "image_version" {
-#     default = "v0.2"
-#   }
-
-# 3. Build, push image, and push template
-make deploy
+# 2. Build, push image, and push template (VERSION is synced automatically)
+make deploy-ddev-user
 
 # Or without cache for clean build
-make deploy-no-cache
+make deploy-ddev-user-no-cache
 ```
-
-**Important:** Keep `VERSION` file and `template.tf` `image_version` in sync manually.
 
 ## Managing Workspaces
 
@@ -163,7 +156,7 @@ make deploy-no-cache
 2. Click "Create Workspace"
 3. Select "ddev-user" template
 4. Enter workspace name
-5. Configure parameters (optional: CPU, memory, Node.js version)
+5. Configure parameters (optional: CPU, memory)
 6. Click "Create Workspace"
 
 **Via CLI:**
@@ -251,19 +244,18 @@ coder delete workspace1 workspace2 workspace3 --yes
 vim ddev-user/template.tf
 
 # 2. Push updated template
-make push-template
+make push-template-ddev-user
 ```
 
 ### Updating Docker Image
 
 ```bash
 # 1. Edit image/Dockerfile (if needed)
-# 2. Increment version
-echo "v0.2" > VERSION
-vim ddev-user/template.tf  # Update image_version to match
+# 2. Increment version (template reads this automatically)
+echo "v0.7" > VERSION
 
 # 3. Build and deploy
-make deploy
+make deploy-ddev-user
 
 # Users must rebuild workspaces to get new Docker image
 ```

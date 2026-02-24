@@ -232,20 +232,13 @@ Image versions are managed via the `VERSION` file in the repository root.
 
 1. Update `VERSION` file:
    ```bash
-   echo "v0.2" > ../VERSION
+   echo "v0.7" > ../VERSION
    ```
 
-2. Update `ddev-user/template.tf` default image_version to match
-
-3. Build and push:
+2. Build, push image, and push template (VERSION is synced automatically):
    ```bash
    cd ..  # Back to repository root
-   make build-and-push
-   ```
-
-4. Push template:
-   ```bash
-   make push-template
+   make deploy-ddev-user
    ```
 
 ## Troubleshooting
