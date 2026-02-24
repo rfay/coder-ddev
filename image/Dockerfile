@@ -107,6 +107,7 @@ RUN mkdir -p /etc/apt/keyrings && \
   docker-ce \
   docker-ce-cli \
   containerd.io \
+  docker-buildx-plugin \
   docker-compose-plugin \
   systemd \
   systemd-sysv && \
