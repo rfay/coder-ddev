@@ -48,7 +48,7 @@ Before deploying this template, ensure the following are in place:
 - Docker installed locally for building images
 - Coder CLI installed and configured
 - Git for version management
-- Make (optional, for automated workflows)
+- Make (`sudo apt-get install -y make` on Ubuntu, pre-installed on macOS)
 
 ## Building the Docker Image
 
