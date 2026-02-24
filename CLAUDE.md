@@ -210,7 +210,7 @@ The `image/Dockerfile` builds the base workspace image:
 ## Key Constraints
 
 ### Sysbox Requirement
-- **Host must have Sysbox installed**: `apt-get install sysbox-ce` (or sysbox-ee)
+- **Host must have Sysbox installed**: download `.deb` from [nestybox/sysbox releases](https://github.com/nestybox/sysbox/releases) and install with `apt-get install ./sysbox-ce_<version>.deb` (no apt repo available)
 - Coder agent nodes must use `sysbox-runc` runtime
 - Workspaces must specify `runtime = "sysbox-runc"` in Terraform
 

@@ -237,10 +237,12 @@ systemctl status docker
 # On Coder host
 sysbox-runc --version
 
-# Install if missing
-apt-get update
-apt-get install sysbox-ce
-systemctl restart docker
+# Install if missing (no apt repo; download .deb from releases page)
+# https://github.com/nestybox/sysbox/releases
+SYSBOX_VERSION=0.6.7
+wget https://downloads.nestybox.com/sysbox/releases/v${SYSBOX_VERSION}/sysbox-ce_${SYSBOX_VERSION}-0.linux_amd64.deb
+apt-get install -y jq ./sysbox-ce_${SYSBOX_VERSION}-0.linux_amd64.deb
+# Note: installer automatically restarts Docker
 ```
 
 **Cause 2: Container not using Sysbox runtime**
@@ -894,4 +896,4 @@ When reporting issues, provide:
 - [Coder Troubleshooting](https://coder.com/docs/guides/troubleshooting) - Official docs
 - [Sysbox Troubleshooting](https://github.com/nestybox/sysbox/blob/master/docs/user-guide/troubleshoot.md) - Sysbox-specific issues
 - [DDEV Troubleshooting](https://docs.ddev.com/users/usage/troubleshooting/) - DDEV-specific issues
-- [GitHub Issues](https://github.com/rfay/coder-ddev/issues) - Report bugs or ask questions
+- [GitHub Issues](https://github.com/ddev/coder-ddev/issues) - Report bugs or ask questions

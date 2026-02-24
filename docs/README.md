@@ -14,11 +14,13 @@ Welcome to the DDEV Coder template documentation. This guide helps you deploy, m
 
 System administrators and DevOps teams managing Coder infrastructure and the DDEV template.
 
+- **[Server Setup Guide](./admin/server-setup.md)** - Fresh server installation: Docker, Sysbox, Coder server, adding capacity
 - **[Operations Guide](./admin/operations-guide.md)** - Template deployment, Docker image builds, version management, workspace lifecycle
 - **[User Management Guide](./admin/user-management.md)** - User accounts, roles, permissions, SSH keys, API tokens, resource quotas
 - **[Troubleshooting Guide](./admin/troubleshooting.md)** - Common issues, debugging tools, error messages, emergency recovery
 
-**Start here:** [Operations Guide](./admin/operations-guide.md)
+**New installation:** [Server Setup Guide](./admin/server-setup.md)
+**Ongoing operations:** [Operations Guide](./admin/operations-guide.md)
 
 ### For Users
 
@@ -168,7 +170,7 @@ ddev start
 
 ### Community Resources
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/rfay/coder-ddev/issues)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/ddev/coder-ddev/issues)
 - **DDEV Documentation**: [Official DDEV docs](https://docs.ddev.com/)
 - **Coder Documentation**: [Official Coder docs](https://coder.com/docs)
 - **Coder Discord**: [Community chat](https://discord.gg/coder)
@@ -176,7 +178,7 @@ ddev start
 ### Before Asking for Help
 
 1. Check the [Troubleshooting Guide](./admin/troubleshooting.md)
-2. Search [existing GitHub issues](https://github.com/rfay/coder-ddev/issues)
+2. Search [existing GitHub issues](https://github.com/ddev/coder-ddev/issues)
 3. Review [DDEV troubleshooting docs](https://docs.ddev.com/users/usage/troubleshooting/)
 
 ### Reporting Issues
@@ -192,7 +194,7 @@ Include:
 
 This is an open-source project. Contributions welcome!
 
-- **Report bugs**: [GitHub Issues](https://github.com/rfay/coder-ddev/issues)
+- **Report bugs**: [GitHub Issues](https://github.com/ddev/coder-ddev/issues)
 - **Contribute code**: Fork, branch, submit PR
 - **Documentation**: Suggest improvements or add examples
 - **AI-assisted development**: See [CLAUDE.md](../CLAUDE.md) for AI workflow
@@ -208,9 +210,9 @@ Current version: See [VERSION](../VERSION) file.
 ## Next Steps
 
 ### For Administrators
-1. Read [Operations Guide](./admin/operations-guide.md)
-2. Build Docker image
-3. Deploy template to Coder
+1. Read [Server Setup Guide](./admin/server-setup.md) (new installations)
+2. Read [Operations Guide](./admin/operations-guide.md)
+3. Build Docker image and deploy template
 4. Create test workspace
 
 ### For Users
