@@ -56,19 +56,24 @@ echo "Coder URLs for project '${PROJECT}':"
 echo "  Web:     https://${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}${PATH_SUFFIX}"
 echo "  Mailpit: https://mailpit--${PROJECT}--${OWNER}.${DOMAIN}"
 
-# Show addon services from the generated coder-routes.yaml (already processed,
-# avoids re-parsing docker-compose files with their list-format env vars).
+# Show addon services from the generated coder-routes.yaml.
+# Addon routers use PathPrefix("/") rules (not Host()), so we derive the URL
+# from the entrypoint name (http-9100 → port 9100) and Coder's port-forwarding
+# URL scheme: https://{port}--{agent}--{workspace}--{owner}.{domain}
 CODER_ROUTES="$HOME/.ddev/traefik/custom-global-config/coder-routes.yaml"
 if [ -f "$CODER_ROUTES" ]; then
+  AGENT="${CODER_AGENT_NAME:-main}"
   while IFS= read -r router; do
-    rule=$(yq e ".http.routers.\"${router}\".rule // \"\"" "$CODER_ROUTES" 2>/dev/null)
-    host=$(echo "$rule" | sed -E 's/Host\(`([^`]+)`\)/\1/')
-    [ -z "$host" ] || [ "$host" = "$rule" ] && continue
     # Skip web and mailpit — already printed above
-    [ "$host" = "${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}" ] && continue
-    [ "$host" = "mailpit--${PROJECT}--${OWNER}.${DOMAIN}" ] && continue
-    slug="${host%%--*}"
-    echo "  ${slug}: https://${host}"
+    [ "$router" = "${PROJECT}-coder-${PROJECT}" ] && continue
+    [ "$router" = "${PROJECT}-coder-mailpit" ] && continue
+    # Get first entrypoint and extract port number (http-9100 → 9100)
+    entrypoint=$(yq e ".http.routers.\"${router}\".entrypoints[0] // \"\"" "$CODER_ROUTES" 2>/dev/null)
+    [ -z "$entrypoint" ] || [ "$entrypoint" = "null" ] && continue
+    port="${entrypoint#http-}"
+    # Slug is the router name with "{project}-coder-" prefix stripped
+    slug="${router#${PROJECT}-coder-}"
+    echo "  ${slug}: https://${port}--${AGENT}--${PROJECT}--${OWNER}.${DOMAIN}"
   done < <(yq e '.http.routers | keys | .[]' "$CODER_ROUTES" 2>/dev/null)
 fi
 

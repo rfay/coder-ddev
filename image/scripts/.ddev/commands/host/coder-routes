@@ -66,22 +66,39 @@ while IFS= read -r router; do
     slug="$svc_name"
   fi
 
-  CODER_HOST="${slug}--${PROJECT}--${OWNER}.${DOMAIN}"
   ROUTER_NAME="${PROJECT}-coder-${slug}"
 
   # Build entrypoints YAML list for yq
   ENTRY_LIST=$(printf '"%s",' "${entrypoints[@]}" | sed 's/,$//')
 
-  RULE='Host(`'"${CODER_HOST}"'`)'
-  RULE="$RULE" SVC="$service" \
-    yq e -i \
-      ".http.routers.\"${ROUTER_NAME}\".entrypoints = [${ENTRY_LIST}] |
-       .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
-       .http.routers.\"${ROUTER_NAME}\".service = env(SVC) |
-       .http.routers.\"${ROUTER_NAME}\".tls = false" \
-    /tmp/coder-routes-raw.yaml
-
-  echo "  + ${slug}: ${entrypoints[*]} → ${service}  (${CODER_HOST})"
+  if [ "$port" = "80" ]; then
+    # Primary web service: Host() rule so Coder's coder_app subdomain proxy works.
+    CODER_HOST="${slug}--${PROJECT}--${OWNER}.${DOMAIN}"
+    RULE='Host(`'"${CODER_HOST}"'`)'
+    RULE="$RULE" SVC="$service" \
+      yq e -i \
+        ".http.routers.\"${ROUTER_NAME}\".entrypoints = [${ENTRY_LIST}] |
+         .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
+         .http.routers.\"${ROUTER_NAME}\".service = env(SVC) |
+         .http.routers.\"${ROUTER_NAME}\".tls = false" \
+      /tmp/coder-routes-raw.yaml
+    echo "  + ${slug}: ${entrypoints[*]} → ${service}  (https://${CODER_HOST})"
+  else
+    # Non-port-80 services: PathPrefix("/") with low priority so any traffic
+    # arriving on this dedicated entrypoint is routed to the correct backend.
+    # This makes Coder port-forwarding URLs (e.g. 9100--agent--workspace--owner.domain)
+    # work without needing to predict the Host header in advance.
+    RULE='PathPrefix(`/`)'
+    RULE="$RULE" SVC="$service" \
+      yq e -i \
+        ".http.routers.\"${ROUTER_NAME}\".entrypoints = [${ENTRY_LIST}] |
+         .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
+         .http.routers.\"${ROUTER_NAME}\".service = env(SVC) |
+         .http.routers.\"${ROUTER_NAME}\".tls = false |
+         .http.routers.\"${ROUTER_NAME}\".priority = 1" \
+      /tmp/coder-routes-raw.yaml
+    echo "  + ${slug}: ${entrypoints[*]} → ${service}  (port-forward: ${port})"
+  fi
 
 done < <(yq e '.http.routers | keys | .[]' "$MERGED" 2>/dev/null)
 
