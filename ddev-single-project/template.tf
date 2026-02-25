@@ -451,9 +451,19 @@ resource "coder_script" "ddev_shutdown" {
   script       = <<-EOT
     #!/bin/bash
     export PATH="$PATH:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin"
-    if command -v ddev > /dev/null 2>&1; then
-      ddev poweroff || true
+    # Wait for Docker socket — it should already be up, but guard against
+    # race conditions during workspace stop/update.
+    for i in $(seq 1 10); do
+      [ -S /var/run/docker.sock ] && break
+      sleep 1
+    done
+    if [ ! -S /var/run/docker.sock ]; then
+      echo "Docker socket not available; skipping ddev poweroff"
+      exit 0
     fi
+    echo "Running ddev poweroff..."
+    ddev poweroff || true
+    echo "ddev poweroff complete"
   EOT
 }
 

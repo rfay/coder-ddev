@@ -511,16 +511,20 @@ resource "coder_script" "ddev_shutdown" {
   run_on_stop  = true
   script       = <<-EOT
     #!/bin/bash
-    # Ensure ddev is in PATH (installed via Homebrew)
     export PATH="$PATH:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin"
-    echo "Stopping all DDEV projects gracefully..."
-    if command -v ddev > /dev/null 2>&1; then
-      ddev poweroff || true
-      echo "DDEV projects stopped"
-    else
-      echo "ddev not found in PATH, trying direct path..."
-      /home/linuxbrew/.linuxbrew/bin/ddev poweroff 2>/dev/null || true
+    # Wait for Docker socket — it should already be up, but guard against
+    # race conditions during workspace stop/update.
+    for i in $(seq 1 10); do
+      [ -S /var/run/docker.sock ] && break
+      sleep 1
+    done
+    if [ ! -S /var/run/docker.sock ]; then
+      echo "Docker socket not available; skipping ddev poweroff"
+      exit 0
     fi
+    echo "Running ddev poweroff..."
+    ddev poweroff || true
+    echo "ddev poweroff complete"
   EOT
 }
 
