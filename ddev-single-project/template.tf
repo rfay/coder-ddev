@@ -176,6 +176,17 @@ resource "coder_agent" "main" {
     fi
     sed -i '/export GIT_SSH_COMMAND=/d' ~/.bashrc || true
 
+    # Persist Coder-provided variables to ~/.bashrc so they are available in
+    # DDEV post-start hooks and interactive shells (DDEV exec-host inherits the
+    # shell environment, which sources ~/.bashrc for login shells).
+    for _var in VSCODE_PROXY_URI CODER_WORKSPACE_NAME CODER_WORKSPACE_OWNER_NAME; do
+      _val="${!_var:-}"
+      if [ -n "$_val" ]; then
+        sed -i "/^export ${_var}=/d" ~/.bashrc || true
+        echo "export ${_var}=${_val}" >> ~/.bashrc
+      fi
+    done
+
     # Start Docker Daemon (Sysbox)
     if ! pgrep -x "dockerd" > /dev/null; then
       echo "Starting Docker Daemon..."

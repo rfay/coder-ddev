@@ -4,9 +4,7 @@
 ## Usage: coder-routes
 ## Example: "ddev coder-routes"
 
-set -euo pipefail
-
-# DDEV_SITENAME is set by DDEV when running this as a command or hook.
+# DDEV_SITENAME is set by DDEV when running as a command or hook.
 # Fall back to CODER_WORKSPACE_NAME for manual invocations outside DDEV context.
 PROJECT="${DDEV_SITENAME:-${CODER_WORKSPACE_NAME:-}}"
 OWNER="${CODER_WORKSPACE_OWNER_NAME:-}"
@@ -20,71 +18,69 @@ if [ -z "$PROJECT" ] || [ -z "$OWNER" ] || [ -z "$DOMAIN" ]; then
   exit 1
 fi
 
-# DDEV_APPROOT is set by DDEV when running as a hook or named command.
-# Fall back to ~/PROJECT for manual invocations outside DDEV context.
-APPROOT="${DDEV_APPROOT:-${HOME}/${PROJECT}}"
+# Read from the DDEV-generated merged Traefik config — it has all routers and
+# service names already correctly computed (including addons), so we don't need
+# to parse docker-compose files ourselves.
+MERGED="${HOME}/.ddev/traefik/config/${PROJECT}_merged.yaml"
+if [ ! -f "$MERGED" ]; then
+  echo "Error: $MERGED not found — run ddev start first"
+  exit 1
+fi
 
 mkdir -p ~/.ddev/traefik/custom-global-config
 
-WEB_HOST="${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}"
-MAILPIT_HOST="mailpit--${PROJECT}--${OWNER}.${DOMAIN}"
+# Seed the output file
+printf "http:\n  routers: {}\n" > /tmp/coder-routes-raw.yaml
 
-# Write base config: web and mailpit are always present in a DDEV project
-cat > /tmp/coder-routes-raw.yaml << YAML_EOF
-http:
-  routers:
-    ${PROJECT}-coder-web:
-      entrypoints:
-        - http-80
-      rule: "Host(\`${WEB_HOST}\`)"
-      service: "${PROJECT}-web-80"
-      tls: false
-    ${PROJECT}-coder-mailpit:
-      entrypoints:
-        - http-8025
-      rule: "Host(\`${MAILPIT_HOST}\`)"
-      service: "${PROJECT}-web-8025"
-      tls: false
-YAML_EOF
+echo "Building Coder Traefik routes from ${PROJECT}_merged.yaml:"
 
-echo "Base routers: web (http-80), mailpit (http-8025)"
+# Iterate over every router in the merged config.
+# Each entry has an entrypoints list and a service name like {project}-{svc}-{port}.
+while IFS= read -r router; do
+  [ -z "$router" ] && continue
 
-# Discover additional services from addon docker-compose files.
-# Each addon writes .ddev/docker-compose.{addon}.yaml before ddev start.
-# Services with VIRTUAL_HOST set are routed via ddev-router / Traefik.
-ADDON_COUNT=0
-for f in "${APPROOT}/.ddev/docker-compose."*.yaml; do
-  [ -f "$f" ] || continue
-  while IFS= read -r svc; do
-    [ -z "$svc" ] || [ "$svc" = "null" ] && continue
-    http_expose=$(yq e ".services.${svc}.environment.HTTP_EXPOSE // \"\"" "$f" 2>/dev/null)
-    [ -z "$http_expose" ] || [ "$http_expose" = "null" ] && continue
+  service=$(yq e ".http.routers.\"${router}\".service // \"\"" "$MERGED")
+  [ -z "$service" ] || [ "$service" = "null" ] && continue
 
-    # Use the first port pair: hostPort:containerPort
-    host_port=$(echo "$http_expose" | cut -d, -f1 | cut -d: -f1)
-    container_port=$(echo "$http_expose" | cut -d, -f1 | cut -d: -f2)
-    [ -z "$host_port" ] || [ -z "$container_port" ] && continue
+  # Read entrypoints as a space-separated list
+  mapfile -t entrypoints < <(yq e ".http.routers.\"${router}\".entrypoints[]" "$MERGED" 2>/dev/null)
+  [ ${#entrypoints[@]} -eq 0 ] && continue
 
-    SVC_HOST="${svc}--${PROJECT}--${OWNER}.${DOMAIN}"
-    TRAEFIK_SVC="${PROJECT}-${svc}-${container_port}"
-    ROUTER_NAME="${PROJECT}-coder-${svc}"
+  # Derive Coder slug from service name: strip {project}- prefix and -{port} suffix.
+  # Examples:
+  #   mysite-web-80      → svc=web  port=80   → slug=mysite  (primary web)
+  #   mysite-web-8025    → svc=web  port=8025  → slug=mailpit (mailpit in web container)
+  #   mysite-adminer-8080 → svc=adminer        → slug=adminer
+  svc_and_port="${service#${PROJECT}-}"
+  port="${svc_and_port##*-}"
+  svc_name="${svc_and_port%-*}"
 
-    # Pass values via env() to avoid shell quoting issues with backticks in the rule.
-    RULE='Host(`'"${SVC_HOST}"'`)'
-    RULE="$RULE" TRAEFIK_SVC="$TRAEFIK_SVC" ENTRY="http-${host_port}" \
-      yq e -i \
-        ".http.routers.\"${ROUTER_NAME}\".entrypoints = [env(ENTRY)] |
-         .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
-         .http.routers.\"${ROUTER_NAME}\".service = env(TRAEFIK_SVC) |
-         .http.routers.\"${ROUTER_NAME}\".tls = false" \
-      /tmp/coder-routes-raw.yaml
+  if [ "$svc_name" = "web" ] && [ "$port" = "8025" ]; then
+    slug="mailpit"
+  elif [ "$svc_name" = "web" ]; then
+    slug="$PROJECT"
+  else
+    slug="$svc_name"
+  fi
 
-    echo "  + ${svc}: http-${host_port} → ${TRAEFIK_SVC}  (${SVC_HOST})"
-    ADDON_COUNT=$((ADDON_COUNT + 1))
-  done < <(yq e '.services | to_entries | .[] | select(.value.environment.VIRTUAL_HOST != null) | .key' "$f" 2>/dev/null)
-done
+  CODER_HOST="${slug}--${PROJECT}--${OWNER}.${DOMAIN}"
+  ROUTER_NAME="${PROJECT}-coder-${slug}"
 
-[ "$ADDON_COUNT" -eq 0 ] && echo "  (no addon services found)"
+  # Build entrypoints YAML list for yq
+  ENTRY_LIST=$(printf '"%s",' "${entrypoints[@]}" | sed 's/,$//')
+
+  RULE='Host(`'"${CODER_HOST}"'`)'
+  RULE="$RULE" SVC="$service" \
+    yq e -i \
+      ".http.routers.\"${ROUTER_NAME}\".entrypoints = [${ENTRY_LIST}] |
+       .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
+       .http.routers.\"${ROUTER_NAME}\".service = env(SVC) |
+       .http.routers.\"${ROUTER_NAME}\".tls = false" \
+    /tmp/coder-routes-raw.yaml
+
+  echo "  + ${slug}: ${entrypoints[*]} → ${service}  (${CODER_HOST})"
+
+done < <(yq e '.http.routers | keys | .[]' "$MERGED" 2>/dev/null)
 
 yq e '.' /tmp/coder-routes-raw.yaml > ~/.ddev/traefik/custom-global-config/coder-routes.yaml
 echo "✓ Wrote coder-routes.yaml"
