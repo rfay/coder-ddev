@@ -56,16 +56,20 @@ echo "Coder URLs for project '${PROJECT}':"
 echo "  Web:     https://${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}${PATH_SUFFIX}"
 echo "  Mailpit: https://mailpit--${PROJECT}--${OWNER}.${DOMAIN}"
 
-# Show any addon services discovered in .ddev/docker-compose.*.yaml
-for f in "${DDEV_APPROOT}/.ddev/docker-compose."*.yaml; do
-  [ -f "$f" ] || continue
-  while IFS= read -r svc; do
-    [ -z "$svc" ] || [ "$svc" = "null" ] && continue
-    http_expose=$(yq e ".services.${svc}.environment.HTTP_EXPOSE // \"\"" "$f" 2>/dev/null)
-    [ -z "$http_expose" ] || [ "$http_expose" = "null" ] && continue
-    host_port=$(echo "$http_expose" | cut -d, -f1 | cut -d: -f1)
-    echo "  ${svc}: https://${svc}--${PROJECT}--${OWNER}.${DOMAIN}  (port ${host_port})"
-  done < <(yq e '.services | to_entries | .[] | select(.value.environment.VIRTUAL_HOST != null) | .key' "$f" 2>/dev/null)
-done
+# Show addon services from the generated coder-routes.yaml (already processed,
+# avoids re-parsing docker-compose files with their list-format env vars).
+CODER_ROUTES="$HOME/.ddev/traefik/custom-global-config/coder-routes.yaml"
+if [ -f "$CODER_ROUTES" ]; then
+  while IFS= read -r router; do
+    rule=$(yq e ".http.routers.\"${router}\".rule // \"\"" "$CODER_ROUTES" 2>/dev/null)
+    host=$(echo "$rule" | sed -E 's/Host\(`([^`]+)`\)/\1/')
+    [ -z "$host" ] || [ "$host" = "$rule" ] && continue
+    # Skip web and mailpit — already printed above
+    [ "$host" = "${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}" ] && continue
+    [ "$host" = "mailpit--${PROJECT}--${OWNER}.${DOMAIN}" ] && continue
+    slug="${host%%--*}"
+    echo "  ${slug}: https://${host}"
+  done < <(yq e '.http.routers | keys | .[]' "$CODER_ROUTES" 2>/dev/null)
+fi
 
 echo ""

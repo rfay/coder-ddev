@@ -39,6 +39,9 @@ echo "Building Coder Traefik routes from ${PROJECT}_merged.yaml:"
 while IFS= read -r router; do
   [ -z "$router" ] && continue
 
+  # DDEV generates both -http and -https router pairs; we only want HTTP.
+  [[ "$router" == *-https ]] && continue
+
   service=$(yq e ".http.routers.\"${router}\".service // \"\"" "$MERGED")
   [ -z "$service" ] || [ "$service" = "null" ] && continue
 
