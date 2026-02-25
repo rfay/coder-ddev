@@ -106,6 +106,12 @@ variable "memory" {
   }
 }
 
+variable "enable_adminer" {
+  description = "Show Adminer database UI app button (requires: ddev get ddev/ddev-adminer)"
+  type        = bool
+  default     = false
+}
+
 resource "coder_agent" "main" {
   arch = "amd64"
   os   = "linux"
@@ -191,14 +197,19 @@ resource "coder_agent" "main" {
       echo "Docker Daemon already running."
     fi
 
-    # Copy DDEV global config (enables ddev-router)
-    mkdir -p ~/.ddev
+    # Copy DDEV global config (enables ddev-router) and host commands
+    mkdir -p ~/.ddev/commands/host
     if [ -f /home/coder-files/.ddev/global_config.yaml ]; then
       cp -f /home/coder-files/.ddev/global_config.yaml ~/.ddev/global_config.yaml
       chmod 644 ~/.ddev/global_config.yaml
       echo "✓ ddev global_config.yaml copied"
     else
       echo "Warning: /home/coder-files/.ddev/global_config.yaml not found"
+    fi
+    if [ -d /home/coder-files/.ddev/commands/host ]; then
+      cp -f /home/coder-files/.ddev/commands/host/* ~/.ddev/commands/host/
+      chmod 755 ~/.ddev/commands/host/*
+      echo "✓ DDEV host commands installed"
     fi
 
     # Ensure yq and linuxbrew are in PATH for this session
@@ -264,6 +275,27 @@ YAML_EOF
       cd ~
     else
       echo "✓ DDEV project already configured in ~/$PROJECT"
+    fi
+
+    # Wire coder-routes as a post-start hook so Traefik routes are updated
+    # after each ddev start (picks up addon services from docker-compose files).
+    # Uses config.coder.yaml alongside config.yaml; DDEV merges both.
+    if [ ! -f ~/$PROJECT/.ddev/config.coder.yaml ]; then
+      cat > ~/$PROJECT/.ddev/config.coder.yaml << 'HOOK_EOF'
+# Coder-specific DDEV hooks (auto-generated, do not edit)
+hooks:
+  post-start:
+    - exec-host: ~/.ddev/commands/host/coder-routes
+HOOK_EOF
+      echo "✓ post-start hook configured (~/$PROJECT/.ddev/config.coder.yaml)"
+    fi
+
+    # Keep config.coder.yaml out of git — use ~/.config/git/ignore (XDG standard,
+    # checked automatically by git without any core.excludesFile config needed).
+    mkdir -p ~/.config/git
+    if ! grep -qF ".ddev/config.coder.yaml" ~/.config/git/ignore 2>/dev/null; then
+      echo ".ddev/config.coder.yaml" >> ~/.config/git/ignore
+      echo "✓ Added .ddev/config.coder.yaml to ~/.config/git/ignore"
     fi
 
     # Display welcome message
@@ -374,6 +406,26 @@ resource "coder_app" "mailpit" {
 
   healthcheck {
     url       = "http://localhost:8025"
+    interval  = 10
+    threshold = 30
+  }
+}
+
+# Adminer: database admin UI added by ddev get ddev/ddev-adminer.
+# HTTP_EXPOSE=9100:8080 → ddev-router port 9100 → adminer container port 8080.
+# coder-routes post-start hook adds the Traefik router automatically.
+resource "coder_app" "adminer" {
+  count        = var.enable_adminer ? 1 : 0
+  agent_id     = coder_agent.main.id
+  slug         = "adminer"
+  display_name = "Adminer"
+  url          = "http://localhost:9100"
+  icon         = "/icon/database.svg"
+  subdomain    = true
+  share        = "owner"
+
+  healthcheck {
+    url       = "http://localhost:9100"
     interval  = 10
     threshold = 30
   }

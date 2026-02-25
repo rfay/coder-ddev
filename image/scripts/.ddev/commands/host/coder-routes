@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+## Description: Regenerate Coder Traefik routing rules for this DDEV project
+## Usage: coder-routes
+## Example: "ddev coder-routes"
+
+set -euo pipefail
+
+# DDEV_SITENAME is set by DDEV when running this as a command or hook.
+# Fall back to CODER_WORKSPACE_NAME for manual invocations outside DDEV context.
+PROJECT="${DDEV_SITENAME:-${CODER_WORKSPACE_NAME:-}}"
+OWNER="${CODER_WORKSPACE_OWNER_NAME:-}"
+DOMAIN=""
+if [ -n "${VSCODE_PROXY_URI:-}" ]; then
+  DOMAIN=$(echo "$VSCODE_PROXY_URI" | sed -E 's|https?://[^.]+\.(.+?)(/.*)?$|\1|')
+fi
+
+if [ -z "$PROJECT" ] || [ -z "$OWNER" ] || [ -z "$DOMAIN" ]; then
+  echo "Error: required variables not set (PROJECT='$PROJECT' OWNER='$OWNER' DOMAIN='$DOMAIN')"
+  exit 1
+fi
+
+# DDEV_APPROOT is set by DDEV when running as a hook or named command.
+# Fall back to ~/PROJECT for manual invocations outside DDEV context.
+APPROOT="${DDEV_APPROOT:-${HOME}/${PROJECT}}"
+
+mkdir -p ~/.ddev/traefik/custom-global-config
+
+WEB_HOST="${PROJECT}--${PROJECT}--${OWNER}.${DOMAIN}"
+MAILPIT_HOST="mailpit--${PROJECT}--${OWNER}.${DOMAIN}"
+
+# Write base config: web and mailpit are always present in a DDEV project
+cat > /tmp/coder-routes-raw.yaml << YAML_EOF
+http:
+  routers:
+    ${PROJECT}-coder-web:
+      entrypoints:
+        - http-80
+      rule: "Host(\`${WEB_HOST}\`)"
+      service: "${PROJECT}-web-80"
+      tls: false
+    ${PROJECT}-coder-mailpit:
+      entrypoints:
+        - http-8025
+      rule: "Host(\`${MAILPIT_HOST}\`)"
+      service: "${PROJECT}-web-8025"
+      tls: false
+YAML_EOF
+
+echo "Base routers: web (http-80), mailpit (http-8025)"
+
+# Discover additional services from addon docker-compose files.
+# Each addon writes .ddev/docker-compose.{addon}.yaml before ddev start.
+# Services with VIRTUAL_HOST set are routed via ddev-router / Traefik.
+ADDON_COUNT=0
+for f in "${APPROOT}/.ddev/docker-compose."*.yaml; do
+  [ -f "$f" ] || continue
+  while IFS= read -r svc; do
+    [ -z "$svc" ] || [ "$svc" = "null" ] && continue
+    http_expose=$(yq e ".services.${svc}.environment.HTTP_EXPOSE // \"\"" "$f" 2>/dev/null)
+    [ -z "$http_expose" ] || [ "$http_expose" = "null" ] && continue
+
+    # Use the first port pair: hostPort:containerPort
+    host_port=$(echo "$http_expose" | cut -d, -f1 | cut -d: -f1)
+    container_port=$(echo "$http_expose" | cut -d, -f1 | cut -d: -f2)
+    [ -z "$host_port" ] || [ -z "$container_port" ] && continue
+
+    SVC_HOST="${svc}--${PROJECT}--${OWNER}.${DOMAIN}"
+    TRAEFIK_SVC="${PROJECT}-${svc}-${container_port}"
+    ROUTER_NAME="${PROJECT}-coder-${svc}"
+
+    # Pass values via env() to avoid shell quoting issues with backticks in the rule.
+    RULE='Host(`'"${SVC_HOST}"'`)'
+    RULE="$RULE" TRAEFIK_SVC="$TRAEFIK_SVC" ENTRY="http-${host_port}" \
+      yq e -i \
+        ".http.routers.\"${ROUTER_NAME}\".entrypoints = [env(ENTRY)] |
+         .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
+         .http.routers.\"${ROUTER_NAME}\".service = env(TRAEFIK_SVC) |
+         .http.routers.\"${ROUTER_NAME}\".tls = false" \
+      /tmp/coder-routes-raw.yaml
+
+    echo "  + ${svc}: http-${host_port} → ${TRAEFIK_SVC}  (${SVC_HOST})"
+    ADDON_COUNT=$((ADDON_COUNT + 1))
+  done < <(yq e '.services | to_entries | .[] | select(.value.environment.VIRTUAL_HOST != null) | .key' "$f" 2>/dev/null)
+done
+
+[ "$ADDON_COUNT" -eq 0 ] && echo "  (no addon services found)"
+
+yq e '.' /tmp/coder-routes-raw.yaml > ~/.ddev/traefik/custom-global-config/coder-routes.yaml
+echo "✓ Wrote coder-routes.yaml"
+
+# Push to running ddev-router; Traefik's watch:true reloads within ~1s
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^ddev-router$"; then
+  docker cp ~/.ddev/traefik/custom-global-config/coder-routes.yaml \
+    ddev-router:/mnt/ddev-global-cache/traefik/config/coder-routes.yaml
+  echo "✓ Pushed to ddev-router (Traefik reloads within ~1s)"
+else
+  echo "Note: ddev-router not running; config will be loaded on next ddev start"
+fi

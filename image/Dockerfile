@@ -57,7 +57,9 @@ COPY --chown=coder:coder scripts /home/coder-files
 # Set correct permissions for scripts in init-scripts
 RUN chmod 644 /home/coder-files/WELCOME.txt && \
   chmod 644 /home/coder-files/.vscode/settings.json && \
-  chmod 644 /home/coder-files/.ddev/global_config.yaml
+  chmod 644 /home/coder-files/.ddev/global_config.yaml && \
+  chmod 755 /home/coder-files/.ddev/commands/host/launch && \
+  chmod 755 /home/coder-files/.ddev/commands/host/coder-routes
 
 # Install additional utilities
 RUN apt-get update && \
