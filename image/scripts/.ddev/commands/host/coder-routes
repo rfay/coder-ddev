@@ -4,24 +4,26 @@
 ## Usage: coder-routes
 ## Example: "ddev coder-routes"
 
-# DDEV_SITENAME is set by DDEV when running as a command or hook.
-# Fall back to CODER_WORKSPACE_NAME for manual invocations outside DDEV context.
-PROJECT="${DDEV_SITENAME:-${CODER_WORKSPACE_NAME:-}}"
+# DDEV_SITENAME is set by DDEV when running as a command or hook (= DDEV project name).
+# CODER_WORKSPACE_NAME is the Coder workspace name (= the Coder app slug / subdomain prefix).
+# These may differ: DDEV_PROJECT is used for service name lookups; WORKSPACE for Coder URLs.
+DDEV_PROJECT="${DDEV_SITENAME:-${CODER_WORKSPACE_NAME:-}}"
+WORKSPACE="${CODER_WORKSPACE_NAME:-$DDEV_PROJECT}"
 OWNER="${CODER_WORKSPACE_OWNER_NAME:-}"
 DOMAIN=""
 if [ -n "${VSCODE_PROXY_URI:-}" ]; then
   DOMAIN=$(echo "$VSCODE_PROXY_URI" | sed -E 's|https?://[^.]+\.(.+?)(/.*)?$|\1|')
 fi
 
-if [ -z "$PROJECT" ] || [ -z "$OWNER" ] || [ -z "$DOMAIN" ]; then
-  echo "Error: required variables not set (PROJECT='$PROJECT' OWNER='$OWNER' DOMAIN='$DOMAIN')"
+if [ -z "$DDEV_PROJECT" ] || [ -z "$OWNER" ] || [ -z "$DOMAIN" ]; then
+  echo "Error: required variables not set (DDEV_PROJECT='$DDEV_PROJECT' OWNER='$OWNER' DOMAIN='$DOMAIN')"
   exit 1
 fi
 
 # Read from the DDEV-generated merged Traefik config — it has all routers and
 # service names already correctly computed (including addons), so we don't need
 # to parse docker-compose files ourselves.
-MERGED="${HOME}/.ddev/traefik/config/${PROJECT}_merged.yaml"
+MERGED="${HOME}/.ddev/traefik/config/${DDEV_PROJECT}_merged.yaml"
 if [ ! -f "$MERGED" ]; then
   echo "Error: $MERGED not found — run ddev start first"
   exit 1
@@ -32,7 +34,7 @@ mkdir -p ~/.ddev/traefik/custom-global-config
 # Seed the output file
 printf "http:\n  routers: {}\n" > /tmp/coder-routes-raw.yaml
 
-echo "Building Coder Traefik routes from ${PROJECT}_merged.yaml:"
+echo "Building Coder Traefik routes from ${DDEV_PROJECT}_merged.yaml:"
 
 # Iterate over every router in the merged config.
 # Each entry has an entrypoints list and a service name like {project}-{svc}-{port}.
@@ -49,31 +51,51 @@ while IFS= read -r router; do
   mapfile -t entrypoints < <(yq e ".http.routers.\"${router}\".entrypoints[]" "$MERGED" 2>/dev/null)
   [ ${#entrypoints[@]} -eq 0 ] && continue
 
-  # Derive Coder slug from service name: strip {project}- prefix and -{port} suffix.
-  # Examples:
-  #   mysite-web-80      → svc=web  port=80   → slug=mysite  (primary web)
-  #   mysite-web-8025    → svc=web  port=8025  → slug=mailpit (mailpit in web container)
-  #   mysite-adminer-8080 → svc=adminer        → slug=adminer
-  svc_and_port="${service#${PROJECT}-}"
+  # Derive Coder slug from service name: strip {ddev_project}- prefix and -{port} suffix.
+  # Examples (DDEV_PROJECT=myproject, WORKSPACE=myworkspace):
+  #   myproject-web-80      → svc=web  port=80   → slug=myworkspace (primary web, uses workspace name)
+  #   myproject-web-8025    → svc=web  port=8025  → slug=mailpit
+  #   myproject-adminer-8080 → svc=adminer        → slug=adminer
+  svc_and_port="${service#${DDEV_PROJECT}-}"
   port="${svc_and_port##*-}"
   svc_name="${svc_and_port%-*}"
 
   if [ "$svc_name" = "web" ] && [ "$port" = "8025" ]; then
     slug="mailpit"
   elif [ "$svc_name" = "web" ]; then
-    slug="$PROJECT"
+    slug="$WORKSPACE"
   else
     slug="$svc_name"
   fi
 
-  ROUTER_NAME="${PROJECT}-coder-${slug}"
+  ROUTER_NAME="${DDEV_PROJECT}-coder-${slug}"
 
   # Build entrypoints YAML list for yq
   ENTRY_LIST=$(printf '"%s",' "${entrypoints[@]}" | sed 's/,$//')
 
-  if [ "$port" = "80" ]; then
+  # Determine external port from the entrypoint name (e.g. http-8143 → 8143).
+  # Use this — NOT the service-name port — to decide routing strategy.
+  # Service names encode the container-internal port (e.g. d11-xhgui-80 → 80),
+  # which can differ from the ddev-router entrypoint (e.g. http-8143).
+  ext_port="${entrypoints[0]#http-}"
+
+  if [ "$ext_port" = "80" ]; then
     # Primary web service: Host() rule so Coder's coder_app subdomain proxy works.
-    CODER_HOST="${slug}--${PROJECT}--${OWNER}.${DOMAIN}"
+    # slug=WORKSPACE and host uses WORKSPACE so the URL matches the Coder app subdomain.
+    CODER_HOST="${slug}--${WORKSPACE}--${OWNER}.${DOMAIN}"
+    RULE='Host(`'"${CODER_HOST}"'`)'
+    RULE="$RULE" SVC="$service" \
+      yq e -i \
+        ".http.routers.\"${ROUTER_NAME}\".entrypoints = [${ENTRY_LIST}] |
+         .http.routers.\"${ROUTER_NAME}\".rule = env(RULE) |
+         .http.routers.\"${ROUTER_NAME}\".service = env(SVC) |
+         .http.routers.\"${ROUTER_NAME}\".tls = false" \
+      /tmp/coder-routes-raw.yaml
+    echo "  + ${slug}: ${entrypoints[*]} → ${service}  (https://${CODER_HOST})"
+  elif [ "$slug" = "mailpit" ] || [ "$slug" = "adminer" ]; then
+    # Known Coder app slugs (defined as coder_app resources in the Terraform template):
+    # use Host() rule so the Coder subdomain proxy URL routes correctly.
+    CODER_HOST="${slug}--${WORKSPACE}--${OWNER}.${DOMAIN}"
     RULE='Host(`'"${CODER_HOST}"'`)'
     RULE="$RULE" SVC="$service" \
       yq e -i \
@@ -84,10 +106,9 @@ while IFS= read -r router; do
       /tmp/coder-routes-raw.yaml
     echo "  + ${slug}: ${entrypoints[*]} → ${service}  (https://${CODER_HOST})"
   else
-    # Non-port-80 services: PathPrefix("/") with low priority so any traffic
-    # arriving on this dedicated entrypoint is routed to the correct backend.
-    # This makes Coder port-forwarding URLs (e.g. 9100--agent--workspace--owner.domain)
-    # work without needing to predict the Host header in advance.
+    # Dynamic add-on services (no dedicated coder_app): PathPrefix("/") catches any
+    # traffic arriving on this entrypoint, enabling Coder port-forwarding URLs:
+    # https://{ext_port}--{agent}--{workspace}--{owner}.{domain}
     RULE='PathPrefix(`/`)'
     RULE="$RULE" SVC="$service" \
       yq e -i \
@@ -97,7 +118,7 @@ while IFS= read -r router; do
          .http.routers.\"${ROUTER_NAME}\".tls = false |
          .http.routers.\"${ROUTER_NAME}\".priority = 1" \
       /tmp/coder-routes-raw.yaml
-    echo "  + ${slug}: ${entrypoints[*]} → ${service}  (port-forward: ${port})"
+    echo "  + ${slug}: ${entrypoints[*]} → ${service}  (https://${ext_port}--main--${WORKSPACE}--${OWNER}.${DOMAIN})"
   fi
 
 done < <(yq e '.http.routers | keys | .[]' "$MERGED" 2>/dev/null)
